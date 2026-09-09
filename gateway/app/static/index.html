@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>售后工单系统</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+         background: #f3f5f7; color: #1f2329; }
+  header { background: #1f2329; color: #fff; padding: 14px 24px;
+           display: flex; justify-content: space-between; align-items: center; }
+  header h1 { font-size: 18px; font-weight: 600; }
+  #userbar { font-size: 13px; display: flex; gap: 12px; align-items: center; }
+  #userbar button { background: transparent; border: 1px solid #666; color: #ddd;
+                    padding: 4px 10px; border-radius: 4px; cursor: pointer; }
+  main { max-width: 960px; margin: 24px auto; padding: 0 16px; }
+  .card { background: #fff; border-radius: 8px; padding: 20px; margin-bottom: 20px;
+          box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+  .card h2 { font-size: 15px; margin-bottom: 14px; color: #333; }
+  input, select, textarea, button { font-size: 14px; padding: 8px 10px;
+           border: 1px solid #d0d3d9; border-radius: 6px; }
+  input, select, textarea { width: 100%; margin-bottom: 10px; }
+  textarea { resize: vertical; min-height: 70px; }
+  button { background: #3370ff; color: #fff; border: none; cursor: pointer; }
+  button:hover { background: #245bdb; }
+  button.ghost { background: #eef2ff; color: #3370ff; }
+  .row { display: flex; gap: 10px; }
+  .row > * { flex: 1; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid #eee; }
+  th { color: #888; font-weight: 500; }
+  .tag { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 12px; }
+  .tag.open { background: #fff7e6; color: #d48806; }
+  .tag.assigned { background: #e6f4ff; color: #1677ff; }
+  .tag.closed { background: #f0f0f0; color: #888; }
+  .tag.urgent, .tag.high { background: #fff1f0; color: #cf1322; }
+  .tag.medium { background: #e6f4ff; color: #1677ff; }
+  .tag.low { background: #f6ffed; color: #389e0d; }
+  .actions button { padding: 4px 8px; font-size: 12px; margin-right: 6px; }
+  #msg { position: fixed; top: 16px; left: 50%; transform: translateX(-50%);
+         padding: 8px 18px; border-radius: 6px; font-size: 13px; display: none; z-index: 9; }
+  #msg.ok { background: #f6ffed; color: #389e0d; border: 1px solid #b7eb8f; }
+  #msg.err { background: #fff1f0; color: #cf1322; border: 1px solid #ffa39e; }
+  .hidden { display: none !important; }
+  .filters { display: flex; gap: 10px; margin-bottom: 12px; align-items: center; }
+  .filters select { width: 160px; margin-bottom: 0; }
+</style>
+</head>
+<body>
+<div id="msg"></div>
+<header>
+  <h1>售后工单系统</h1>
+  <div id="userbar" class="hidden">
+    <span id="whoami"></span>
+    <button onclick="logout()">退出登录</button>
+  </div>
+</header>
+<main>
+  <!-- 登录 / 注册 -->
+  <div class="card" id="auth-card">
+    <h2>登录</h2>
+    <div class="row">
+      <input id="login-username" placeholder="用户名">
+      <input id="login-password" type="password" placeholder="密码">
+    </div>
+    <button onclick="login()">登录</button>
+    <h2 style="margin-top:20px">注册（默认客户角色）</h2>
+    <div class="row">
+      <input id="reg-username" placeholder="用户名">
+      <input id="reg-password" type="password" placeholder="密码（至少 6 位）">
+      <select id="reg-role">
+        <option value="customer">客户</option>
+        <option value="agent">客服</option>
+        <option value="admin">管理员</option>
+      </select>
+    </div>
+    <button class="ghost" onclick="register()">注册</button>
+    <p style="margin-top:12px;font-size:12px;color:#999">初始管理员：admin / admin123</p>
+  </div>
+
+  <!-- 创建工单 -->
+  <div class="card hidden" id="create-card">
+    <h2>新建工单</h2>
+    <input id="t-title" placeholder="标题，例如：商品破损申请退款">
+    <textarea id="t-desc" placeholder="问题描述"></textarea>
+    <div class="row">
+      <select id="t-priority">
+        <option value="low">低</option>
+        <option value="medium" selected>中</option>
+        <option value="high">高</option>
+        <option value="urgent">紧急</option>
+      </select>
+      <button onclick="createTicket()">提交工单</button>
+    </div>
+  </div>
+
+  <!-- 工单列表 -->
+  <div class="card hidden" id="list-card">
+    <h2>工单列表</h2>
+    <div class="filters">
+      <select id="f-status" onchange="loadTickets()">
+        <option value="">全部状态</option>
+        <option value="open">待处理</option>
+        <option value="assigned">已派发</option>
+        <option value="closed">已关闭</option>
+      </select>
+      <button class="ghost" onclick="loadTickets()">刷新</button>
+    </div>
+    <table>
+      <thead><tr>
+        <th>#</th><th>标题</th><th>优先级</th><th>状态</th>
+        <th>创建人</th><th>处理人</th><th>更新时间</th><th>操作</th>
+      </tr></thead>
+      <tbody id="ticket-rows"></tbody>
+    </table>
+  </div>
+</main>
+
+<script>
+const STATUS_LABEL = { open: "待处理", assigned: "已派发", closed: "已关闭" };
+const PRIO_LABEL = { low: "低", medium: "中", high: "高", urgent: "紧急" };
+let token = localStorage.getItem("token") || "";
+let me = JSON.parse(localStorage.getItem("me") || "null");
+
+function showMsg(text, ok) {
+  const el = document.getElementById("msg");
+  el.textContent = text;
+  el.className = ok ? "ok" : "err";
+  el.style.display = "block";
+  setTimeout(() => el.style.display = "none", 2500);
+}
+
+async function api(path, opts = {}) {
+  opts.headers = Object.assign({ "Content-Type": "application/json" }, opts.headers);
+  if (token) opts.headers["Authorization"] = "Bearer " + token;
+  const resp = await fetch("/api" + path, opts);
+  if (resp.status === 401) { logout(); throw new Error("登录已过期"); }
+  const data = await resp.json().catch(() => ({}));
+  if (!resp.ok) throw new Error(data.detail || ("请求失败 " + resp.status));
+  return data;
+}
+
+async function login() {
+  try {
+    const data = await api("/auth/login", {
+      method: "POST",
+      body: JSON.stringify({
+        username: document.getElementById("login-username").value.trim(),
+        password: document.getElementById("login-password").value,
+      }),
+    });
+    token = data.access_token;
+    me = await api("/auth/verify");
+    localStorage.setItem("token", token);
+    localStorage.setItem("me", JSON.stringify(me));
+    render();
+    loadTickets();
+    showMsg("登录成功", true);
+  } catch (e) { showMsg(e.message, false); }
+}
+
+async function register() {
+  try {
+    await api("/auth/register", {
+      method: "POST",
+      body: JSON.stringify({
+        username: document.getElementById("reg-username").value.trim(),
+        password: document.getElementById("reg-password").value,
+        role: document.getElementById("reg-role").value,
+      }),
+    });
+    showMsg("注册成功，请登录", true);
+  } catch (e) { showMsg(e.message, false); }
+}
+
+function logout() {
+  token = ""; me = null;
+  localStorage.removeItem("token");
+  localStorage.removeItem("me");
+  render();
+}
+
+async function createTicket() {
+  try {
+    await api("/tickets", {
+      method: "POST",
+      body: JSON.stringify({
+        title: document.getElementById("t-title").value.trim(),
+        description: document.getElementById("t-desc").value,
+        priority: document.getElementById("t-priority").value,
+      }),
+    });
+    document.getElementById("t-title").value = "";
+    document.getElementById("t-desc").value = "";
+    showMsg("工单已创建", true);
+    loadTickets();
+  } catch (e) { showMsg(e.message, false); }
+}
+
+async function loadTickets() {
+  try {
+    const status = document.getElementById("f-status").value;
+    const data = await api("/tickets" + (status ? "?status=" + status : ""));
+    const rows = document.getElementById("ticket-rows");
+    rows.innerHTML = "";
+    for (const t of data.tickets) {
+      const tr = document.createElement("tr");
+      const canAssign = (me.role === "admin" || me.role === "agent") && t.status !== "closed";
+      const canClose = t.status !== "closed" &&
+        (me.role === "admin" || t.creator_id === me.id || t.assignee_id === me.id);
+      tr.innerHTML =
+        `<td>${t.id}</td><td title="${escapeHtml(t.description)}">${escapeHtml(t.title)}</td>` +
+        `<td><span class="tag ${t.priority}">${PRIO_LABEL[t.priority] || t.priority}</span></td>` +
+        `<td><span class="tag ${t.status}">${STATUS_LABEL[t.status] || t.status}</span></td>` +
+        `<td>${t.creator_id}</td><td>${t.assignee_id ?? "-"}</td>` +
+        `<td>${new Date(t.updated_at).toLocaleString()}</td>` +
+        `<td class="actions"></td>`;
+      const actions = tr.querySelector(".actions");
+      if (canAssign) {
+        const b = document.createElement("button");
+        b.textContent = "派发";
+        b.onclick = () => assignTicket(t.id);
+        actions.appendChild(b);
+      }
+      if (canClose) {
+        const b = document.createElement("button");
+        b.textContent = "关闭";
+        b.className = "ghost";
+        b.onclick = () => closeTicket(t.id);
+        actions.appendChild(b);
+      }
+      rows.appendChild(tr);
+    }
+  } catch (e) { showMsg(e.message, false); }
+}
+
+async function assignTicket(id) {
+  const input = prompt("输入处理人用户 ID（客服或管理员）：");
+  if (!input) return;
+  try {
+    await api(`/tickets/${id}/assign`, {
+      method: "POST",
+      body: JSON.stringify({ assignee_id: parseInt(input, 10) }),
+    });
+    showMsg("派发成功", true);
+    loadTickets();
+  } catch (e) { showMsg(e.message, false); }
+}
+
+async function closeTicket(id) {
+  if (!confirm("确认关闭工单 #" + id + "？")) return;
+  try {
+    await api(`/tickets/${id}/close`, { method: "POST" });
+    showMsg("工单已关闭", true);
+    loadTickets();
+  } catch (e) { showMsg(e.message, false); }
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+function render() {
+  const loggedIn = !!token && !!me;
+  document.getElementById("auth-card").classList.toggle("hidden", loggedIn);
+  document.getElementById("create-card").classList.toggle("hidden", !loggedIn);
+  document.getElementById("list-card").classList.toggle("hidden", !loggedIn);
+  document.getElementById("userbar").classList.toggle("hidden", !loggedIn);
+  if (loggedIn) {
+    const roleLabel = { admin: "管理员", agent: "客服", customer: "客户" }[me.role] || me.role;
+    document.getElementById("whoami").textContent =
+      `${me.username}（${roleLabel}，ID: ${me.id}）`;
+  }
+}
+
+render();
+if (token) loadTickets();
+</script>
+</body>
+</html>
