@@ -1,3 +1,5 @@
+import logging
+
 from conftest import as_user, auth_header, client
 
 
@@ -145,3 +147,16 @@ def test_status_filter():
 def test_trace_id_echoed():
     resp = client.get("/health", headers={"X-Trace-ID": "trace-ticket-1"})
     assert resp.headers["X-Trace-ID"] == "trace-ticket-1"
+
+
+def test_access_log_carries_trace_id(caplog):
+    # Regression test: the access log line must be emitted while the trace
+    # ID is still bound to the request context (never the "-" default).
+    with caplog.at_level(logging.INFO, logger="ticket.access"):
+        client.get("/health", headers={"X-Trace-ID": "trace-access-1"})
+        client.get("/health")  # no header -> generated id, still not "-"
+    access = [r for r in caplog.records if r.name == "ticket.access"]
+    assert len(access) >= 2
+    trace_ids = [getattr(r, "trace_id", "-") for r in access]
+    assert "trace-access-1" in trace_ids
+    assert "-" not in trace_ids

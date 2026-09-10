@@ -41,12 +41,14 @@ class TraceMiddleware(BaseHTTPMiddleware):
         start = time.monotonic()
         try:
             response = await call_next(request)
+            elapsed_ms = (time.monotonic() - start) * 1000
+            # Emit the access log while the trace ID is still bound to this
+            # context; resetting the contextvar first would log trace_id=-.
+            logging.getLogger("ticket.access").info(
+                "%s %s -> %s %.1fms",
+                request.method, request.url.path, response.status_code, elapsed_ms,
+            )
+            response.headers[TRACE_HEADER] = trace_id
+            return response
         finally:
             trace_id_var.reset(token)
-        elapsed_ms = (time.monotonic() - start) * 1000
-        logging.getLogger("ticket.access").info(
-            "%s %s -> %s %.1fms",
-            request.method, request.url.path, response.status_code, elapsed_ms,
-        )
-        response.headers[TRACE_HEADER] = trace_id
-        return response

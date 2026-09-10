@@ -23,10 +23,21 @@ from app.main import app  # noqa: E402
 client = TestClient(app)
 
 
-def register(username, password="secret123", role="customer"):
-    return client.post("/auth/register", json={
-        "username": username, "password": password, "role": role,
-    })
+def register(username, password="secret123", role=None):
+    payload = {"username": username, "password": password}
+    if role is not None:
+        payload["role"] = role
+    return client.post("/auth/register", json=payload)
+
+
+def provision(username, role, password="secret123"):
+    """Create an account with a specific role via the admin-only endpoint."""
+    token = token_of("admin", "admin123")
+    return client.post(
+        "/auth/users",
+        json={"username": username, "password": password, "role": role},
+        headers=auth_header(token),
+    )
 
 
 def login(username, password="secret123"):

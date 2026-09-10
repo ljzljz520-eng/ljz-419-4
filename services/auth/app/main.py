@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from .db import get_db
 from .models import Role, User
 from .observability import TraceMiddleware, setup_logging
-from .schemas import LoginIn, RegisterIn, RoleOut, TokenOut, UserListOut, UserOut
+from .schemas import LoginIn, RegisterIn, RoleOut, TokenOut, UserCreateIn, UserListOut, UserOut
 from .security import create_token, decode_token, hash_password, verify_password
 
 setup_logging("auth")
@@ -49,6 +49,26 @@ def to_user_out(user: User) -> UserOut:
     return UserOut(id=user.id, username=user.username, role=user.role.name)
 
 
+DEFAULT_ROLE = "customer"
+
+
+def create_user(db: Session, username: str, password: str, role_name: str) -> User:
+    role = db.query(Role).filter(Role.name == role_name).first()
+    if role is None:
+        raise HTTPException(status_code=400, detail="unknown role: " + role_name)
+    if db.query(User).filter(User.username == username).first():
+        raise HTTPException(status_code=409, detail="username already taken")
+    user = User(
+        username=username,
+        password_hash=hash_password(password),
+        role_id=role.id,
+    )
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return user
+
+
 @app.get("/health")
 def health():
     return {"status": "ok", "service": "auth"}
@@ -56,20 +76,11 @@ def health():
 
 @app.post("/auth/register", response_model=UserOut, status_code=201)
 def register(body: RegisterIn, db: Session = Depends(get_db)):
-    role = db.query(Role).filter(Role.name == body.role).first()
-    if role is None:
-        raise HTTPException(status_code=400, detail="unknown role: " + body.role)
-    if db.query(User).filter(User.username == body.username).first():
-        raise HTTPException(status_code=409, detail="username already taken")
-    user = User(
-        username=body.username,
-        password_hash=hash_password(body.password),
-        role_id=role.id,
-    )
-    db.add(user)
-    db.commit()
-    db.refresh(user)
-    logger.info("user registered id=%s username=%s role=%s", user.id, user.username, role.name)
+    # Public self-registration is always a customer account. Any role sent
+    # by the client is ignored; privileged roles are provisioned by admins
+    # via POST /auth/users.
+    user = create_user(db, body.username, body.password, DEFAULT_ROLE)
+    logger.info("user registered id=%s username=%s role=%s", user.id, user.username, DEFAULT_ROLE)
     return to_user_out(user)
 
 
@@ -96,6 +107,21 @@ def list_roles(db: Session = Depends(get_db)):
 @app.get("/auth/users", response_model=UserListOut)
 def list_users(db: Session = Depends(get_db), _: User = Depends(require_admin)):
     return UserListOut(users=[to_user_out(u) for u in db.query(User).all()])
+
+
+@app.post("/auth/users", response_model=UserOut, status_code=201)
+def provision_user(
+    body: UserCreateIn,
+    db: Session = Depends(get_db),
+    admin: User = Depends(require_admin),
+):
+    """Admin-only provisioning of accounts with any role (agent/admin/customer)."""
+    user = create_user(db, body.username, body.password, body.role)
+    logger.info(
+        "user provisioned id=%s username=%s role=%s by_admin=%s",
+        user.id, user.username, user.role.name, admin.id,
+    )
+    return to_user_out(user)
 
 
 @app.get("/auth/users/{user_id}", response_model=UserOut)

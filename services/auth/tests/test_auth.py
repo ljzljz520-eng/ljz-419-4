@@ -1,4 +1,4 @@
-from conftest import auth_header, client, login, register, token_of
+from conftest import auth_header, client, login, provision, register, token_of
 
 
 def test_health():
@@ -26,9 +26,43 @@ def test_register_duplicate_username_conflict():
     assert resp.status_code == 409
 
 
-def test_register_unknown_role_rejected():
+def test_register_ignores_client_supplied_role():
+    # Regression test for the privilege-escalation bug: a client-supplied
+    # role (e.g. admin) must never be honoured by public registration.
+    resp = register("mallory", role="admin")
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["role"] == "customer"
+
+    # The account must not gain admin powers.
+    token = token_of("mallory")
+    assert client.get("/auth/users", headers=auth_header(token)).status_code == 403
+
+
+def test_register_ignores_unknown_role():
     resp = register("carol", role="superuser")
-    assert resp.status_code == 400
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["role"] == "customer"
+
+
+def test_provision_user_requires_admin():
+    body = {"username": "eve", "password": "secret123", "role": "agent"}
+    assert client.post("/auth/users", json=body).status_code == 401
+
+    register("erin2")
+    token = token_of("erin2")
+    resp = client.post("/auth/users", json=body, headers=auth_header(token))
+    assert resp.status_code == 403
+
+
+def test_provision_user_by_admin():
+    resp = provision("gina", "agent")
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["role"] == "agent"
+
+    # Unknown roles are still rejected on the admin endpoint.
+    assert provision("hank", "superuser").status_code == 400
+    # Duplicate usernames are rejected.
+    assert provision("gina", "agent").status_code == 409
 
 
 def test_login_wrong_password():
@@ -63,8 +97,8 @@ def test_get_user_by_id_staff_only():
     customer_token = token_of("frank")
     assert client.get("/auth/users/1", headers=auth_header(customer_token)).status_code == 403
 
-    register("gina", role="agent")
-    agent_token = token_of("gina")
+    provision("ivy", "agent")
+    agent_token = token_of("ivy")
     resp = client.get("/auth/users/1", headers=auth_header(agent_token))
     assert resp.status_code == 200
     assert resp.json()["username"] == "admin"

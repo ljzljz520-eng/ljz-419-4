@@ -62,10 +62,11 @@ cd services/ticket && .venv/bin/python -m pytest tests/ -q
 
 | 方法 | 路径（经网关） | 说明 | 权限 |
 |---|---|---|---|
-| POST | /api/auth/register | 注册 | 公开 |
+| POST | /api/auth/register | 注册（固定为客户角色，忽略客户端传入的 role） | 公开 |
 | POST | /api/auth/login | 登录，返回 JWT | 公开 |
 | GET  | /api/auth/verify | 校验 token，返回当前用户 | 登录 |
 | GET  | /api/auth/users | 用户列表 | admin |
+| POST | /api/auth/users | 开通账号（可指定 admin/agent/customer 角色） | admin |
 | GET  | /api/auth/users/{id} | 查询用户 | admin / agent |
 | GET  | /api/auth/roles | 角色列表 | 公开 |
 | POST | /api/tickets | 创建工单 | 登录 |
